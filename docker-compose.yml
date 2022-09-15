@@ -1,0 +1,19 @@
+---
+version: "2.1"
+services:
+  traxiv:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - proxy
+  proxy:
+    # DockerHub mirror flaresolverr/flaresolverr:latest
+    image: flaresolverr/flaresolverr:v2.2.7
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_HTML=${LOG_HTML:-false}
+      - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+      - TZ=Europe/London
+    ports:
+      - "${PORT:-8191}:8191"

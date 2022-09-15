@@ -7,9 +7,13 @@ Usage:
     url =  generate_rpf_link('Molecular Systems Biology', '10.15252/msb.20198849')
 """
 
+from json import JSONDecodeError
+from random import randint
+from time import sleep
 import requests
 import re
 from .utils import resolve
+from . import logger
 
 
 class RPFLinkAbstract:
@@ -24,6 +28,11 @@ class RPFLinkAbstract:
     Returns:
         str: the url of the link to the RPF or an empty string if the link did not work.
     """
+
+    def __init__(self, delay_requests: bool = True, *args, **kwargs) -> None:
+        super.__init__(*args, **kwargs)
+        self.delay_requests = True
+
     # wouldn't it be nice to have doi for RPFs?
     # But we don't... so, here it goes:
     # https://www.embopress.org/action/downloadSupplement?doi=10.15252/embj.2019102578&file=embj2019102578.reviewer_comments.pdf
@@ -36,13 +45,39 @@ class RPFLinkAbstract:
     def _generate_link(self, doi: str) -> str:
         raise NotImplementedError
 
-    def _test(self, link: str) -> bool:
-        if link:
-            test = requests.get(link)
-            link = link if 'application/pdf' in test.headers['Content-Type'] else ''
-        else:
-            link = ''
-        return link
+    def _test(self, link: str, invalid='') -> bool:
+        if not link:
+            return invalid
+
+        if self.delay_requests:
+            duration = randint(5, 20)
+            logger.debug('Delaying %s seconds before requesting %s', duration, link)
+            sleep(duration)
+
+        proxy_request_data = {
+            'cmd': 'request.get',
+            'url': link,
+            'maxTimeout': 60000,
+        }
+        proxy_response = requests.post('http://proxy:8191/v1', json=proxy_request_data, timeout=60000)
+
+        if proxy_response.status_code != 200:
+            logger.warning("Failed to get response from proxy for %s: %s, %s", link, proxy_response, proxy_response.headers)
+            return invalid
+        try:
+            proxy_response_data = proxy_response.json()
+        except JSONDecodeError as e:
+            logger.warning("Failed to get valid response from proxy for %s: %s, %s", link, proxy_response, proxy_response.headers)
+            return invalid
+        
+        response_status = proxy_response_data['solution']['status']
+        response_headers = proxy_response_data['solution']['headers']
+        if response_status != 200:
+            logger.warning("Failed to get response for %s: %s, %s", link, response_status, response_headers)
+            return invalid
+
+        response_content_type = response_headers.get('content-type', '')
+        return link if 'application/pdf' in response_content_type else invalid
 
     def __call__(self, doi: str) -> str:
         link = self._generate_link(doi)
